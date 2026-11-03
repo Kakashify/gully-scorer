@@ -1,0 +1,31 @@
+name: Fetch offline voice models
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/voice-models.yml']
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Vosk models and repack as tar.gz
+        run: |
+          set -e
+          mkdir -p models work
+          cd work
+          for m in vosk-model-small-en-in-0.4 vosk-model-small-hi-0.22; do
+            curl -fsSL --retry 3 -o "$m.zip" "https://alphacephei.com/vosk/models/$m.zip"
+            unzip -q "$m.zip"
+            tar -czf "../models/$m.tar.gz" "$m"
+          done
+          ls -la ../models
+      - name: Commit models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models
+          git commit -m "Add offline voice models" || echo "No changes"
+          git push
