@@ -177,6 +177,11 @@ td.r{font-weight:700}
 .mic.on{display:inline-flex}
 .mic[aria-pressed=true]{background:var(--out);color:#fff}
 .hint{font-size:13px;color:var(--muted);text-align:center}
+.vbar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:rgba(255,95,109,.12);border-bottom:1px solid var(--line);font-size:14px;font-weight:600;min-height:36px}
+.vbar .dot{width:10px;height:10px;border-radius:50%;background:var(--out);flex:none;animation:pulse 1.2s infinite}
+.vbar.hit{background:rgba(95,211,160,.16)}.vbar.hit .dot{background:var(--four)}
+#vtext{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes pulse{50%{opacity:.3}}
 @media (max-height:700px){.k{height:56px;font-size:28px}.score{font-size:58px}.board{gap:8px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -252,6 +257,7 @@ td.r{font-weight:700}
       <span class="label" id="p-match"></span>
       <button class="link mic" id="mic" data-act="mic" aria-pressed="false">🎤 Voice</button>
     </div>
+    <div class="vbar" id="vbar" hidden><span class="dot"></span><span id="vtext">Listening…</span></div>
     <div class="board">
       <div class="meta"><span id="p-inn">1st innings</span><span class="pill" id="p-pill">CRR 0.00</span></div>
       <div class="bigline">
@@ -809,8 +815,9 @@ function openMenu(){
   const vOK=!!SR&&standalone;
   openSheet("<h3>Match menu</h3><p>"+(M.cfg.test?"Test match · ":"")+(M.cfg.overs>0?pl(M.cfg.overs,"over"):"No over limit")+" · "+bp(M.cfg)+"-ball overs · "+M.cfg.players+" a side"+(M.cfg.lms&&!M.cfg.test?" · last man stands":"")+". Your match is saved, you can leave and resume.</p>"+
     "<div class='row'><div class='txt'><strong>Speak the score</strong><small>Calls out fours, sixes, wickets and each over</small></div><button class='switch' id='m-speak' role='switch' aria-checked='"+prefs.speak+"' aria-label='Speak the score'></button></div>"+
-    (vOK?"<div class='field'><span class='label'>Voice input language</span><div class='chips' id='m-vlang'><button class='chip' data-l='en-IN' aria-pressed='"+(prefs.vlang==="en-IN")+"'>English / Roman Urdu</button><button class='chip' data-l='ur-PK' aria-pressed='"+(prefs.vlang==="ur-PK")+"'>اردو</button><button class='chip' data-l='hi-IN' aria-pressed='"+(prefs.vlang==="hi-IN")+"'>Hindi</button></div></div>"+
-      "<p>Say: <b>four</b>, <b>chakka</b>, <b>ek</b>, <b>do</b>, <b>dot</b>, <b>wide</b>, <b>wide two</b>, <b>no ball four</b>, <b>bye two</b>, <b>out</b>, <b>caught</b>, <b>run out one</b>, <b>undo</b>, <b>score</b>.</p>":
+    (vOK?"<div class='field'><span class='label'>Voice input language</span><div class='chips' id='m-vlang'><button class='chip' data-l='en-IN' aria-pressed='"+(prefs.vlang==="en-IN")+"'>English (best)</button><button class='chip' data-l='ur-PK' aria-pressed='"+(prefs.vlang==="ur-PK")+"'>اردو</button><button class='chip' data-l='hi-IN' aria-pressed='"+(prefs.vlang==="hi-IN")+"'>Hindi</button></div>"+
+      "<small class='small'>English works best for cricket words. Urdu and Hindi also understand English words like four, wide and out.</small></div>"+
+      "<p>Say one ball at a time: <b>four</b>, <b>six</b>, <b>single</b>, <b>dot</b>, <b>wide</b>, <b>wide two</b>, <b>no ball four</b>, <b>bye two</b>, <b>out</b>, <b>caught</b>, <b>run out one</b>, <b>undo</b>, <b>score</b>. Roman Urdu like <b>chakka</b>, <b>chauka</b>, <b>ek</b>, <b>do</b> also works.</p>":
       "<p>Voice input works once the app is opened from its own link or installed on your phone.</p>")+
     "<button class='btn' data-act='sayscore'>Read out the score</button>"+
     "<button class='btn' data-act='endinn'>"+(M.cfg.test&&M.cur<lastInn(M)?"Declare innings":"End this innings now")+"</button>"+(M.cfg.test?"<button class='btn' data-act='drawask'>End match as a draw</button>":"")+"<button class='btn' data-act='home'>Back to start (keeps match)</button><button class='btn danger' data-act='abandon'>Abandon match</button>"+cancel);
@@ -879,57 +886,130 @@ document.addEventListener("click",e=>{
   }
 });
 
-/* ---------- voice input ---------- */
+/* ---------- voice input ----------
+   Short listening sessions with live (interim) results: a ball is entered as soon as the
+   words settle, instead of waiting for the phone to decide the sentence is over. */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let rec=null,listening=false;
+const SRP=window.SpeechRecognitionPhrase||window.webkitSpeechRecognitionPhrase;
+let listening=false,sess=null,phrasesOK=!!SRP,restartT=null,idleT=null;
 if(SR&&standalone)$("#mic").classList.add("on");
 const NUM={
-  zero:0,dot:0,nothing:0,khali:0,"خالی":0,"صفر":0,"زیرو":0,"ڈاٹ":0,"शून्य":0,"डॉट":0,
-  one:1,single:1,won:1,ek:1,aik:1,"ایک":1,"سنگل":1,"एक":1,
-  two:2,double:2,to:2,too:2,do:2,"دو":2,"ڈبل":2,"दो":2,
-  three:3,tree:3,free:3,teen:3,tin:3,"تین":3,"तीन":3,
-  four:4,for:4,boundary:4,char:4,chaar:4,chauka:4,chouka:4,chaukka:4,"چار":4,"چوکا":4,"چوکہ":4,"چوکا!":4,"चार":4,"चौका":4,
-  five:5,panch:5,paanch:5,"پانچ":5,"पांच":5,
-  six:6,sixer:6,maximum:6,chakka:6,chhakka:6,chaka:6,chhe:6,"چھ":6,"چھکا":6,"چھکہ":6,"छह":6,"छक्का":6
+  zero:0,dot:0,nothing:0,khali:0,khaali:0,"0":0,"خالی":0,"صفر":0,"زیرو":0,"ڈاٹ":0,"ڈوٹ":0,"शून्य":0,"डॉट":0,"डोट":0,"ज़ीरो":0,"जीरो":0,"खाली":0,
+  one:1,single:1,won:1,ek:1,aik:1,"ایک":1,"سنگل":1,"ون":1,"एक":1,"सिंगल":1,"वन":1,
+  two:2,double:2,to:2,too:2,tu:2,do:2,"دو":2,"ڈبل":2,"ٹو":2,"दो":2,"डबल":2,"टू":2,
+  three:3,tree:3,free:3,teen:3,tin:3,thri:3,"تین":3,"تھری":3,"तीन":3,"थ्री":3,
+  four:4,for:4,fore:4,far:4,floor:4,boundary:4,char:4,chaar:4,chauka:4,chouka:4,chaukka:4,chowka:4,"چار":4,"چوکا":4,"چوکہ":4,"فور":4,"باؤنڈری":4,"चार":4,"चौका":4,"फोर":4,"फ़ोर":4,"बाउंड्री":4,
+  five:5,panch:5,paanch:5,"پانچ":5,"فائیو":5,"पांच":5,"पाँच":5,"फाइव":5,
+  six:6,sixer:6,sex:6,sax:6,sics:6,sixth:6,maximum:6,chakka:6,chhakka:6,chaka:6,chhka:6,chhe:6,"چھ":6,"چھکا":6,"چھکہ":6,"سکس":6,"सिक्स":6,"छह":6,"छः":6,"छक्का":6,
+  seven:7,saat:7,"سات":7,"सात":7
 };
-const DIG={"۰":0,"۱":1,"۲":2,"۳":3,"۴":4,"۵":5,"۶":6,"۷":7,"۸":8,"۹":9,"٠":0,"١":1,"٢":2,"٣":3,"٤":4,"٥":5,"٦":6,"०":0,"१":1,"२":2,"३":3,"४":4,"५":5,"६":6};
-function numIn(t){
-  t=t.replace(/[۰-۹٠-٦०-९]/g,d=>DIG[d]);
-  const m=t.match(/\b(\d)\b/)||t.match(/(\d)/);if(m)return+m[1];
-  const words=t.split(/\s+/);for(let k=words.length-1;k>=0;k--){if(words[k] in NUM)return NUM[words[k]]}
-  return null;
+const DIG={"۰":0,"۱":1,"۲":2,"۳":3,"۴":4,"۵":5,"۶":6,"۷":7,"۸":8,"۹":9,"٠":0,"١":1,"٢":2,"٣":3,"٤":4,"٥":5,"٦":6,"٧":7,"०":0,"१":1,"२":2,"३":3,"४":4,"५":5,"६":6,"७":7};
+const OUTW=/^(out|aout|owt|wicket|wickets|bowled|bold|caught|catch|court|stumped|stump|gaya|gya|آؤٹ|آوٹ|اوٹ|وکٹ|کیچ|بولڈ|سٹمپ|آउट|आउट|विकेट|कैच|बोल्ड|स्टंप)$/;
+const WIDEW=/^(wide|wied|white|waid|wade|وائڈ|وائیڈ|واڈ|وائد|वाइड|वाईड)$/;
+const BYEW=/^(bye|byes|by|bai|بائی|बाय|बाई)$/;
+const UNDOW=/^(undo|cancel|galat|ghalat|wapas|wrong|غلط|واپس|کینسل|अनडू|गलत|वापस|कैंसल)$/;
+const SCOREW=/^(score|kitna|kitne|اسکور|سکور|کتنا|स्कोर|कितना)$/;
+function norm(raw){
+  let t=" "+String(raw).toLowerCase()+" ";
+  t=t.replace(/[۰-۹٠-٧०-७]/g,d=>DIG[d]);
+  t=t.replace(/(\d)/g," $1 ");
+  t=t.replace(/[.,!?؟۔।'"’]/g," ");
+  t=t.replace(/no[\s-]*ball|nobel|noble|nobal|know ball|نو ?بال|نوبال|नो ?बॉल|नो ?बाल/g," NB ");
+  t=t.replace(/run[\s-]*out|ran out|رن ?آؤٹ|رن ?آوٹ|रन ?आउट/g," RO ");
+  t=t.replace(/(one|ek|1)[\s-]*tip([\s-]*(one|ek|1)[\s-]*(hand|haath|hath))?|ون ٹپ( ون ہینڈ)?|वन टिप( वन हैंड)?/g," OT ");
+  t=t.replace(/hit wicket/g," HW ");
+  t=t.replace(/over the wall|deewar|diwar|دیوار|दीवार/g," WALL ");
+  return t.split(/\s+/).filter(Boolean);
 }
-function heard(raw){
-  const t=raw.toLowerCase().replace(/[.,!?؟۔।]/g," ").replace(/\s+/g," ").trim();
-  if(!t)return;
-  if(/undo|cancel|galat|ghalat|wapas|غلط|واپس|کینسل|गलत|वापस/.test(t))return undo();
-  if(/score|اسکور|سکور|स्कोर|kitna|کتنا|कितना/.test(t)){say(scoreWords(),true);toast(scoreWords());return}
-  if(!M||!$("#s-play").classList.contains("on"))return;
-  if(scrim.classList.contains("on")){toast("Finish the open box first");return}
-  const n=numIn(t);
-  const wide=/wide|wied|white|waid|وائڈ|وائیڈ|واڈ|वाइड/.test(t);
-  const nob=/no ?ball|nobel|noble|نو ?بال|नो ?बॉल/.test(t);
-  if(wide)return add({t:"wd",r:n!=null&&n<=4?n:0});
-  if(nob)return add({t:"nb",r:n!=null&&[0,1,2,3,4,6].includes(n)?n:0});
-  if(/\bbye|\bby\b|بائی|बाय/.test(t))return add({t:"b",r:n&&n<=4?n:1});
-  if(/run ?out|رن ?آؤٹ|रन ?आउट/.test(t))return add({t:"w",how:"Run out",r:n&&n<=3?n:0});
-  if(/\bout|wicket|bowled|caught|catch|stumped|gaya|آؤٹ|آوٹ|وکٹ|کیچ|बोल्ड|आउट|विकेट|कैच/.test(t)){
-    const how=/one tip|ek tip/.test(t)?"One tip one hand":/caught|catch|کیچ|कैच/.test(t)?"Caught":/bowled|بولڈ|बोल्ड/.test(t)?"Bowled":/stump/.test(t)?"Stumped":/wall|deewar|دیوار/.test(t)?"Hit over the wall":"Other";
-    return add({t:"w",how,r:0});
+// Turn words into a list of scoring commands. "pre" marks a command that may still get a number ("wide" … "two").
+function parseAll(raw){
+  const w=norm(raw),out=[];let k=0;
+  const num=x=>x in NUM?NUM[x]:(/^\d$/.test(x)?+x:null);
+  while(k<w.length){
+    const x=w[k];
+    if(UNDOW.test(x)){out.push({c:"undo"});k++;continue}
+    if(SCOREW.test(x)){out.push({c:"score"});k++;continue}
+    if(x==="NB"||WIDEW.test(x)||BYEW.test(x)||x==="RO"){
+      const t=x==="NB"?"nb":x==="RO"?"ro":WIDEW.test(x)?"wd":"b";
+      let n=null,j=k+1;
+      while(j<w.length&&/^(plus|and|runs?|aur|or|\+|ball)$/.test(w[j]))j++;
+      if(j<w.length&&num(w[j])!=null){n=num(w[j]);k=j+1}else k++;
+      const ok={wd:[0,1,2,3,4],nb:[0,1,2,3,4,6],b:[1,2,3,4],ro:[0,1,2,3]}[t];
+      if(n!=null&&!ok.includes(n))n=null;
+      out.push({c:t,r:n==null?(t==="b"?1:0):n,pre:n==null});continue;
+    }
+    if(OUTW.test(x)||x==="OT"||x==="HW"||x==="WALL"){
+      let how="Other";const span=[];
+      while(k<w.length&&(OUTW.test(w[k])||["OT","HW","WALL"].includes(w[k])||/^(ho|hai|he|is|gaya|ball)$/.test(w[k]))){span.push(w[k]);k++}
+      const sp=span.join(" ");
+      if(/OT/.test(sp))how="One tip one hand";else if(/caught|catch|court|کیچ|कैच/.test(sp))how="Caught";
+      else if(/bowled|bold|بولڈ|बोल्ड/.test(sp))how="Bowled";else if(/stump|سٹمپ|स्टंप/.test(sp))how="Stumped";
+      else if(/WALL/.test(sp))how="Hit over the wall";else if(/HW/.test(sp))how="Hit wicket";
+      out.push({c:"w",how});continue;
+    }
+    const n=num(x);
+    if(n!=null&&n<=7){out.push({c:"r",r:n});k++;continue}
+    k++;
   }
-  if(n!=null&&[0,1,2,3,4,6].includes(n))return add({t:"r",r:n});
-  toast("Didn't catch that: “"+raw+"”");
+  return out;
+}
+function runCmd(c){
+  if(c.c==="undo")return undo();
+  if(c.c==="score"){say(scoreWords(),true);toast(scoreWords());return}
+  if(!M||!$("#s-play").classList.contains("on"))return;
+  if(scrim.classList.contains("on")){toast("Finish the open box first, or say “undo”");return}
+  if(c.c==="r")add({t:"r",r:c.r});
+  else if(c.c==="wd")add({t:"wd",r:c.r});
+  else if(c.c==="nb")add({t:"nb",r:c.r});
+  else if(c.c==="b")add({t:"b",r:c.r});
+  else if(c.c==="ro")add({t:"w",how:"Run out",r:c.r});
+  else if(c.c==="w")add({t:"w",how:c.how,r:0});
+}
+const label=c=>c.c==="r"?(c.r===0?"Dot":c.r+(c.r===1?" run":" runs")):c.c==="wd"?"Wide"+(c.r?" +"+c.r:""):c.c==="nb"?"No ball"+(c.r?" +"+c.r:""):c.c==="b"?"Bye "+c.r:c.c==="ro"?"Run out"+(c.r?" +"+c.r:""):c.c==="w"?"OUT · "+c.how:c.c==="undo"?"Undo":"Score";
+function heard(raw){const cs=parseAll(raw);if(!cs.length){toast("Didn't catch that: “"+raw+"”");return}cs.forEach(runCmd)}
+function vbar(text,hit){const b=$("#vbar");b.hidden=!listening;b.classList.toggle("hit",!!hit);$("#vtext").textContent=text}
+const PHRASES=["four","six","single","dot","wide","no ball","bye","out","caught","bowled","run out","stumped","undo","score","chakka","chauka","one","two","three"];
+function session(){
+  if(!listening)return;
+  clearTimeout(restartT);
+  const r=new SR();
+  r.lang=prefs.vlang;r.continuous=false;r.interimResults=true;r.maxAlternatives=5;
+  if(phrasesOK){try{r.phrases=PHRASES.map(x=>new SRP(x,3))}catch(_){phrasesOK=false}}
+  const S={r,done:0,timer:null,best:[]};sess=S;
+  const flush=()=>{clearTimeout(S.timer);const add=S.best.slice(S.done);S.done=S.best.length;if(add.length){vbar("✓ "+add.map(label).join(" · "),true);buzz(20);add.forEach(runCmd)}};
+  r.onresult=e=>{
+    let pre="";for(let k=0;k<e.results.length-1;k++)pre+=" "+e.results[k][0].transcript;
+    const last=e.results[e.results.length-1];
+    let best=null,heardTxt=(pre+" "+last[0].transcript).trim();
+    for(let a=0;a<last.length;a++){const cs=parseAll(pre+" "+last[a].transcript);if(!best||cs.length>best.length){best=cs;if(cs.length)heardTxt=(pre+" "+last[a].transcript).trim()}}
+    if(best.length<=S.done){if(heardTxt)vbar("“"+heardTxt+"”");if(last.isFinal&&heardTxt&&!best.length)vbar("Didn't catch “"+heardTxt+"”");return}
+    S.best=best;vbar("“"+heardTxt+"”");
+    clearTimeout(S.timer);
+    const tail=best[best.length-1];
+    if(last.isFinal)flush();
+    else S.timer=setTimeout(flush,tail.pre?900:250);
+  };
+  r.onerror=e=>{
+    if(e.error==="phrases-not-supported"){phrasesOK=false;return}
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"){toast("Microphone blocked. Allow it for this app in your phone settings.");stopMic();return}
+    if(e.error==="network"){vbar("No internet, voice needs data or Wi-Fi")}
+    if(e.error==="language-not-supported"){toast("That voice language isn't available, switching to English");prefs.vlang="en-IN";savePrefs()}
+  };
+  r.onend=()=>{flush();if(sess===S&&listening)restartT=setTimeout(session,60)};
+  try{r.start()}catch(_){restartT=setTimeout(session,300)}
 }
 function toggleMic(){listening?stopMic():startMic()}
 function startMic(){
   if(!SR)return;
-  rec=new SR();rec.lang=prefs.vlang;rec.continuous=true;rec.interimResults=false;rec.maxAlternatives=1;
-  rec.onresult=e=>{const r=e.results[e.results.length-1];if(r.isFinal){const tx=r[0].transcript;toast("🎤 "+tx);heard(tx)}};
-  rec.onerror=e=>{if(e.error==="not-allowed"||e.error==="service-not-allowed"){toast("Microphone blocked. Allow it for this app in your phone settings.");stopMic()}};
-  rec.onend=()=>{if(listening){setTimeout(()=>{try{rec.start()}catch(_){}},150)}};
-  try{rec.start();listening=true;$("#mic").setAttribute("aria-pressed","true");$("#mic").textContent="🎤 Listening";toast("Listening. Say “four”, “wide”, “out” or “undo”")}catch(e){toast("Voice not available on this browser")}
+  listening=true;const b=$("#mic");b.setAttribute("aria-pressed","true");b.textContent="🎤 On";
+  vbar("Listening… say “four”, “wide”, “out”");session();
 }
-function stopMic(){listening=false;const b=$("#mic");b.setAttribute("aria-pressed","false");b.textContent="🎤 Voice";if(rec){try{rec.stop()}catch(_){}}}
+function stopMic(){
+  listening=false;clearTimeout(restartT);const b=$("#mic");b.setAttribute("aria-pressed","false");b.textContent="🎤 Voice";
+  if(sess){try{sess.r.abort()}catch(_){}sess=null}
+  $("#vbar").hidden=true;
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&listening)stopMic()});
 
 /* ---------- keep screen awake while scoring ---------- */
 let lock=null;
@@ -957,7 +1037,7 @@ if(standalone&&"serviceWorker" in navigator&&location.protocol==="https:"){windo
 
 /* ---------- boot ---------- */
 syncSetupUI();renderResume();renderInstall();
-window.__gully={stats,result,heard,get M(){return M}};
+window.__gully={stats,result,heard,parseAll,get M(){return M}};
 })();
 </script>
 </body>

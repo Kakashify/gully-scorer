@@ -1,4 +1,4 @@
-const CACHE = "gully-v3";
+const CACHE = "gully-v4";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-maskable.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
