@@ -62,7 +62,7 @@ input[type=text]:focus,textarea:focus{border-color:var(--ball);outline:none}
 .row small,.small{color:var(--muted);font-size:13px}
 .stepper{display:flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:4px}
 .stepper button{width:40px;height:40px;border-radius:9px;font-size:22px;font-weight:700;background:var(--raise)}
-.stepper output{min-width:44px;text-align:center;font-family:var(--display);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.stepper output{min-width:44px;white-space:nowrap;text-align:center;font-family:var(--display);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-weight:600;font-size:14px}
 .chip[aria-pressed=true]{background:var(--ball);color:#1b1600;border-color:var(--ball)}
@@ -113,6 +113,7 @@ input[type=text]:focus,textarea:focus{border-color:var(--ball);outline:none}
 .b.out{background:var(--out);color:#fff;border-color:var(--out)}
 .b.ext{border-style:dashed;color:var(--ball);font-size:15px}
 .b.empty{border-style:dotted;background:transparent;color:var(--line)}
+.balls.many{gap:5px}.balls.many .b{min-width:32px;height:32px;font-size:15px;padding:0 6px}
 .prev{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
 .prev span{flex:none;font-size:13px;color:var(--muted);background:var(--surface);border-radius:8px;padding:4px 8px;font-variant-numeric:tabular-nums}
 .prev span b{color:var(--ink)}
@@ -201,11 +202,19 @@ td.r{font-weight:700}
         </div>
       </div>
       <div class="card">
-        <div class="row"><div class="txt"><strong>Overs per side</strong><small>Each innings</small></div>
+        <div class="field"><span class="label">Match type</span>
+          <div class="chips" id="mode">
+            <button class="chip" data-v="limited" aria-pressed="true">Limited overs</button>
+            <button class="chip" data-v="test" aria-pressed="false">Test match · 2 innings each</button>
+          </div>
+          <small class="small" id="mode-note">One innings each. Highest score wins.</small></div>
+        <div class="row"><div class="txt"><strong id="overs-title">Overs per side</strong><small id="overs-note">Each innings</small></div>
           <div class="stepper"><button data-step="overs" data-d="-1" aria-label="Fewer overs">−</button><output id="v-overs">5</output><button data-step="overs" data-d="1" aria-label="More overs">+</button></div></div>
+        <div class="row"><div class="txt"><strong>Balls per over</strong><small id="bpo-note">Normal cricket is 6</small></div>
+          <div class="stepper"><button data-step="bpo" data-d="-1" aria-label="Fewer balls per over">−</button><output id="v-bpo">6</output><button data-step="bpo" data-d="1" aria-label="More balls per over">+</button></div></div>
         <div class="row"><div class="txt"><strong>Players per side</strong><small id="wk-note">All out at 5 wickets</small></div>
           <div class="stepper"><button data-step="players" data-d="-1" aria-label="Fewer players">−</button><output id="v-players">6</output><button data-step="players" data-d="1" aria-label="More players">+</button></div></div>
-        <div class="row"><div class="txt"><strong>Last man stands</strong><small>Final batter can carry on alone</small></div>
+        <div class="row" id="lms-row"><div class="txt"><strong>Last man stands</strong><small>Final batter can carry on alone</small></div>
           <button class="switch" id="lms" role="switch" aria-checked="false" aria-label="Last man stands"></button></div>
       </div>
       <div class="card">
@@ -250,7 +259,7 @@ td.r{font-weight:700}
           <div class="team" id="p-team"></div>
           <div class="score" id="p-score">0<span>/0</span></div>
         </div>
-        <div class="ov">Overs<br><b id="p-ov">0.0</b> / <span id="p-max">5</span></div>
+        <div class="ov">Overs<br><b id="p-ov">0.0</b><span id="p-max"> / 5</span></div>
       </div>
       <div class="wkts" id="p-wkts" aria-label="Wickets left"></div>
       <div class="chase" id="p-chase"></div>
@@ -316,15 +325,24 @@ const prefs=Object.assign({speak:false,vlang:"en-IN"},store.get("gully.prefs",{}
 const savePrefs=()=>store.set("gully.prefs",prefs);
 
 /* ---------- setup state ---------- */
-const setup=Object.assign({overs:5,players:6,lms:false,extras:"run-rebowl",first:0,track:false},store.get("gully.lastSetup",{}));
-const LIM={overs:[1,50],players:[2,11]};
-function maxW(cfg){return cfg.lms?cfg.players:cfg.players-1}
-function wkNote(){const w=maxW(setup);$("#wk-note").textContent="All out at "+pl(w,"wicket")}
+const setup=Object.assign({overs:5,players:6,lms:false,extras:"run-rebowl",first:0,track:false,mode:"limited",bpo:6},store.get("gully.lastSetup",{}));
+const LIM={overs:[1,100],players:[2,11],bpo:[1,20]};
+const lim=k=>k==="overs"&&setup.mode==="test"?[0,100]:LIM[k];
+function maxW(cfg){return cfg.lms&&!cfg.test?cfg.players:cfg.players-1}
+const bp=c=>(c&&c.bpo)||6;
+const limit=c=>c.overs>0?c.overs*bp(c):Infinity;
+const ovStr=(l,b)=>{b=b||6;return Math.floor(l/b)+"."+(l%b)};
+const oversOut=v=>v>0?String(v):"No limit";
+function wkNote(){const w=maxW(Object.assign({},setup,{test:setup.mode==="test"}));$("#wk-note").textContent="All out at "+pl(w,"wicket")}
 const splitNames=s=>String(s||"").split(/[,\n]+/).map(x=>x.trim()).filter(Boolean).slice(0,15);
 
 /* ---------- scoring engine ---------- */
 let M=null;
-function newMatch(cfg){return{id:Date.now(),cfg,inn:[{bat:cfg.first,ev:[]},{bat:1-cfg.first,ev:[]}],cur:0,created:Date.now(),done:false}}
+function newMatch(cfg){
+  const f=cfg.first,inn=[{bat:f,ev:[]},{bat:1-f,ev:[]}];
+  if(cfg.test)inn.push({bat:f,ev:[]},{bat:1-f,ev:[]});
+  return{id:Date.now(),cfg,inn,cur:0,created:Date.now(),done:false};
+}
 const BALL={r:1,wd:1,nb:1,b:1,w:1};
 
 function meta(e,cfg){
@@ -374,10 +392,10 @@ function stats(m,i){
       }
       if(x.legal)o.b++;
     }
-    if(x.legal){legal++;if(legal%6===0){overs.push([]);lastBowler=bw;overPending=true;if(cfg.track)swap()}}
+    if(x.legal){legal++;if(legal%bp(cfg)===0){overs.push([]);lastBowler=bw;overPending=true;if(cfg.track)swap()}}
   }
   const last=[...inn.ev].reverse().find(e=>BALL[e.t]);
-  const stopped=wk>=maxW(cfg)||legal>=cfg.overs*6||inn.closed;
+  const stopped=wk>=maxW(cfg)||legal>=limit(cfg)||inn.closed;
   const T=cfg.track&&!stopped;
   return{runs,wk,legal,extras,fours,sixes,overs,bat,bowl,order,border,st,ns,bw,lastBowler,
     freeHit:!!last&&last.t==="nb",
@@ -385,30 +403,39 @@ function stats(m,i){
     needBat:T&&hasSet&&(st==null||(ns==null&&!lone())),
     needBowl:T&&hasSet&&overPending};
 }
-const ovStr=l=>Math.floor(l/6)+"."+(l%6);
+function total(m,team,upto){let r=0;const n=upto==null?m.inn.length-1:upto;for(let i=0;i<=n;i++)if(m.inn[i].bat===team)r+=stats(m,i).runs;return r}
+const lastInn=m=>m.inn.length-1;
 function ended(m,i){
-  const s=stats(m,i);
-  if(i===1&&s.runs>=stats(m,0).runs+1)return"chased";
+  const s=stats(m,i),bt=m.inn[i].bat;
+  if(i===lastInn(m)&&total(m,bt,i)>total(m,1-bt,i))return"chased";
   if(m.inn[i].closed)return"closed";
   if(s.wk>=maxW(m.cfg))return"allout";
-  if(s.legal>=m.cfg.overs*6)return"overs";
+  if(s.legal>=limit(m.cfg))return"overs";
   return null;
 }
+// After innings i finishes, is the whole match decided?
+function matchOver(m,i){
+  if(i>=lastInn(m))return true;
+  if(m.cfg.test&&i===2){const x=m.inn[2].bat;return total(m,x,2)<total(m,1-x,2)}
+  return false;
+}
+const ordIn=(m,i)=>{if(!m.cfg.test)return"";let k=0;for(let j=0;j<=i;j++)if(m.inn[j].bat===m.inn[i].bat)k++;return k===1?"1st inns":"2nd inns"};
 function result(m){
-  const a=stats(m,0),b=stats(m,1),T=m.cfg.teams,bat1=T[m.inn[0].bat],bat2=T[m.inn[1].bat];
+  const T=m.cfg.teams,li=m.cur,bt=m.inn[li].bat,ot=1-bt,tb=total(m,bt,li),to=total(m,ot,li);
   const tag=m.cfg.superOf?"Super over: ":"";
-  if(b.runs>a.runs){
-    const w=maxW(m.cfg)-b.wk,left=m.cfg.overs*6-b.legal;
-    return{winner:m.inn[1].bat,head:tag+bat2+" won by "+pl(w,"wicket"),sub:left>0?pl(left,"ball")+" to spare":"Off the last ball"};
+  if(m.drawn)return{winner:-1,draw:true,head:"Match drawn",sub:T[0]+" "+total(m,0,li)+" · "+T[1]+" "+total(m,1,li)};
+  if(m.cfg.test&&li===2&&tb<to)return{winner:ot,head:T[ot]+" won by an innings and "+pl(to-tb,"run"),sub:T[bt]+" batted twice and still trailed"};
+  if(tb>to){
+    const s=stats(m,li),w=maxW(m.cfg)-s.wk,left=limit(m.cfg)-s.legal;
+    return{winner:bt,head:tag+T[bt]+" won by "+pl(w,"wicket"),sub:isFinite(left)?(left>0?pl(left,"ball")+" to spare":"Off the last ball"):"Target chased down"};
   }
-  if(b.runs===a.runs)return{winner:-1,head:tag+"Match tied",sub:"Both teams on "+a.runs+". Settle it with a super over."};
-  const r=a.runs-b.runs;
-  return{winner:m.inn[0].bat,head:tag+bat1+" won by "+pl(r,"run"),sub:bat2+" fell short chasing "+(a.runs+1)};
+  if(tb===to)return{winner:-1,head:tag+"Match tied",sub:"Both teams on "+tb+(m.cfg.test?".":". Settle it with a super over.")};
+  return{winner:ot,head:tag+T[ot]+" won by "+pl(to-tb,"run"),sub:T[bt]+" fell short chasing "+(to+1)};
 }
 function potm(m){
   if(!m.cfg.track)return null;
   const pts={};
-  for(let i=0;i<2;i++){const s=stats(m,i);
+  for(let i=0;i<=m.cur;i++){const s=stats(m,i);
     for(const n of s.order){const b=s.bat[n],k=m.inn[i].bat+"|"+n;pts[k]=pts[k]||{n,team:m.inn[i].bat,r:0,w:0,p:0};pts[k].r+=b.r;pts[k].p+=b.r+(b.r>=25?10:0)}
     for(const n of s.border){const o=s.bowl[n],k=(1-m.inn[i].bat)+"|"+n;pts[k]=pts[k]||{n,team:1-m.inn[i].bat,r:0,w:0,p:0};pts[k].w+=o.w;pts[k].p+=o.w*20-(o.b?Math.max(0,o.r-o.b*1.2):0)*0.3}}
   const list=Object.values(pts);if(!list.length)return null;
@@ -435,14 +462,15 @@ function add(e){
   buzz(e.t==="w"?[40,40,40]:15);
   const end=ended(M,i),team=M.cfg.teams[M.inn[i].bat];
   let words=e.t==="r"&&e.r===4?"Four! ":e.t==="r"&&e.r===6?"Six! ":e.t==="w"?"Out! "+e.how+". ":"";
-  if(!end&&after.legal>before.legal&&after.legal%6===0){
+  const B=bp(M.cfg);
+  if(!end&&after.legal>before.legal&&after.legal%B===0){
     const o=after.overs[after.overs.length-2]||[];
     const or=o.reduce((a,x)=>a+x.runs,0);
     toast("Over done · "+pl(or,"run"));
-    words+="End of over "+(after.legal/6)+". "+team+" "+after.runs+" for "+after.wk+". ";
+    words+="End of over "+(after.legal/B)+". "+team+" "+after.runs+" for "+after.wk+". ";
   }else if(e.t==="w"&&!end){words+=team+" "+after.runs+" for "+after.wk+"."}
   if(end){
-    if(i===0){say(words+team+" finish on "+after.runs+" for "+after.wk+". Target "+(after.runs+1)+".");save();render();openBreak(end);return}
+    if(!matchOver(M,i)){say(words+team+" finish on "+after.runs+" for "+after.wk+".");save();render();openBreak(end);return}
     M.done=true;save();archive();say(words+result(M).head);showResult(M,false);return;
   }
   if(words)say(words);
@@ -452,23 +480,28 @@ function addCtl(e){if(!M)return;M.inn[M.cur].ev.push(e);save();closeSheet();rend
 function undo(){
   if(!M)return;
   closeSheet();
-  if(M.inn[M.cur].ev.length===0&&M.cur===1)M.cur=0;
+  if(M.inn[M.cur].ev.length===0&&M.cur>0){
+    if(M.cur===2&&M.followOn){M.followOn=false;M.inn[2].bat=M.cfg.first;M.inn[3].bat=1-M.cfg.first}
+    M.cur--;
+  }
   const ev=M.inn[M.cur].ev;
   if(!ev.length){toast("Nothing to undo");return}
   delete M.inn[M.cur].closed;
   while(ev.length&&(ev[ev.length-1].t==="bat"||ev[ev.length-1].t==="bowl"))ev.pop();
   if(ev.length)ev.pop();
+  delete M.drawn;
   if(M.done){M.done=false;store.set("gully.history",store.get("gully.history",[]).filter(x=>x.id!==M.id))}
   save();show("play");render();toast("Last ball removed");
-  if(M.cur===0&&ended(M,0))openBreak(ended(M,0));else promptIfNeeded();
+  reopenBreak();
 }
+function reopenBreak(){const e=ended(M,M.cur);if(e&&!M.done&&!matchOver(M,M.cur))openBreak(e);else promptIfNeeded()}
 
 /* ---------- names known for a team ---------- */
 function known(m,team){
   const out=[],seen=new Set();
   const push=n=>{const k=n.toLowerCase();if(n&&!seen.has(k)){seen.add(k);out.push(n)}};
   (m.cfg.squad&&m.cfg.squad[team]||[]).forEach(push);
-  const scan=mm=>{for(let i=0;i<2;i++){if(!mm.inn||!mm.inn[i])continue;const s=stats(mm,i);const tn=mm.cfg.teams;
+  const scan=mm=>{for(let i=0;i<(mm.inn?mm.inn.length:0);i++){if(!mm.inn||!mm.inn[i])continue;const s=stats(mm,i);const tn=mm.cfg.teams;
     if(tn[mm.inn[i].bat].toLowerCase()===m.cfg.teams[team].toLowerCase())s.order.forEach(push);
     if(tn[1-mm.inn[i].bat].toLowerCase()===m.cfg.teams[team].toLowerCase())s.border.forEach(push)}};
   try{scan(m)}catch(_){}
@@ -481,12 +514,13 @@ function render(){
   if(!M)return;
   const i=M.cur,s=stats(M,i),cfg=M.cfg,T=cfg.teams;
   $("#p-match").textContent=(cfg.superOf?"Super over · ":"")+T[0]+" v "+T[1];
-  $("#p-inn").textContent=i===0?"1st innings":"2nd innings · chasing";
+  const B=bp(cfg),bt=M.inn[i].bat,last=i===lastInn(M);
+  $("#p-inn").textContent=cfg.test?"Test · innings "+(i+1)+" of 4":(i===0?"1st innings":"2nd innings · chasing");
   $("#p-team").textContent=T[M.inn[i].bat];
   $("#p-score").innerHTML=s.runs+"<span>/"+s.wk+"</span>";
-  $("#p-ov").textContent=ovStr(s.legal);
-  $("#p-max").textContent=cfg.overs;
-  const crr=s.legal?(s.runs*6/s.legal):0;
+  $("#p-ov").textContent=ovStr(s.legal,B);
+  $("#p-max").textContent=cfg.overs>0?" / "+cfg.overs:"";
+  const crr=s.legal?(s.runs*B/s.legal):0;
   const pill=$("#p-pill");
   if(s.freeHit&&cfg.extras!=="run-ball"){pill.textContent="FREE HIT";pill.className="pill hot"}
   else{pill.textContent="CRR "+crr.toFixed(2);pill.className="pill"}
@@ -494,28 +528,33 @@ function render(){
   for(let k=0;k<mw;k++)w+='<i class="'+(k<s.wk?"gone":"")+'"></i>';
   $("#p-wkts").innerHTML=w;
   const ch=$("#p-chase");
-  if(i===1){
-    const tgt=stats(M,0).runs+1,need=Math.max(0,tgt-s.runs),balls=cfg.overs*6-s.legal;
-    const rrr=balls?(need*6/balls):0;
-    ch.innerHTML="<span>Need <em>"+need+"</em> off <em>"+balls+"</em> ball"+(balls===1?"":"s")+"</span><span>Target "+tgt+" · RRR "+rrr.toFixed(2)+"</span>";
+  const tb=total(M,bt,i),to=total(M,1-bt,i);
+  if(last){
+    const need=Math.max(0,to+1-tb),balls=limit(cfg)-s.legal;
+    if(isFinite(balls)){const rrr=balls?(need*B/balls):0;
+      ch.innerHTML="<span>Need <em>"+need+"</em> off <em>"+balls+"</em> ball"+(balls===1?"":"s")+"</span><span>Target "+(to+1)+" · RRR "+rrr.toFixed(2)+"</span>"}
+    else ch.innerHTML="<span>Need <em>"+need+"</em> to win</span><span>Target "+(to+1)+" · "+pl(maxW(cfg)-s.wk,"wicket")+" left</span>";
+  }else if(cfg.test&&i>0){
+    const d=tb-to;
+    ch.innerHTML="<span>"+(d>0?"Lead by <em>"+d+"</em>":d<0?"Trail by <em>"+(-d)+"</em>":"Scores <em>level</em>")+"</span><span>"+esc(T[bt])+" "+tb+" · "+esc(T[1-bt])+" "+to+"</span>";
   }else{
-    const proj=s.legal?Math.round(crr*cfg.overs):0;
-    ch.innerHTML="<span>Extras <em>"+s.extras+"</em> · 4s <em>"+s.fours+"</em> · 6s <em>"+s.sixes+"</em></span><span>"+(s.legal?"Projected "+proj:"First ball coming up")+"</span>";
+    const proj=s.legal&&cfg.overs>0?Math.round(crr*cfg.overs):0;
+    ch.innerHTML="<span>Extras <em>"+s.extras+"</em> · 4s <em>"+s.fours+"</em> · 6s <em>"+s.sixes+"</em>"+"</span><span>"+(!s.legal?"First ball coming up":cfg.overs>0?"Projected "+proj:"Run rate "+crr.toFixed(2))+"</span>";
   }
   const pp=$("#p-players");
   if(cfg.track&&(s.st||s.ns)){
     pp.hidden=false;
     const card=(n,on)=>{if(!n)return'<div class="pl"><span class="nm small">Waiting for batter</span></div>';const b=s.bat[n];return'<div class="pl'+(on?" on":"")+'"><span class="nm">'+esc(n)+"</span><b>"+b.r+"</b><small>("+b.b+")</small></div>"};
     let h=card(s.st,true)+(s.ns||!(cfg.lms&&s.wk>=cfg.players-1)?card(s.ns,false):'<div class="pl"><span class="nm small">Last man standing</span></div>');
-    if(s.bw){const o=s.bowl[s.bw];h+='<div class="pl bw">Bowling&nbsp;<span class="nm">'+esc(s.bw)+"</span><span>"+ovStr(o.b)+" – "+o.r+" – "+o.w+"</span></div>"}
+    if(s.bw){const o=s.bowl[s.bw];h+='<div class="pl bw">Bowling&nbsp;<span class="nm">'+esc(s.bw)+"</span><span>"+ovStr(o.b,B)+" – "+o.r+" – "+o.w+"</span></div>"}
     pp.innerHTML=h;
   }else pp.hidden=true;
   const cur=s.overs[s.overs.length-1];
   $("#p-thisover").textContent="Over "+s.overs.length;
   $("#p-overruns").textContent=cur.length?pl(cur.reduce((a,x)=>a+x.runs,0),"run"):"";
   let legalIn=cur.filter(x=>x.legal).length,b=cur.map(x=>'<span class="b '+x.cls+'">'+x.label+"</span>").join("");
-  for(let k=legalIn;k<6;k++)b+='<span class="b empty">·</span>';
-  $("#p-balls").innerHTML=b;
+  for(let k=legalIn;k<B;k++)b+='<span class="b empty">·</span>';
+  $("#p-balls").innerHTML=b;$("#p-balls").classList.toggle("many",B>8);
   const done=s.overs.slice(0,-1);
   $("#p-prev").innerHTML=done.map((o,k)=>"<span>Ov "+(k+1)+" <b>"+o.reduce((a,x)=>a+x.runs,0)+"</b>"+(o.some(x=>x.wk)?" · "+o.filter(x=>x.wk).length+"w":"")+(cfg.track&&o[0]&&o[0].bw?" · "+esc(o[0].bw):"")+"</span>").reverse().join("");
 }
@@ -602,7 +641,7 @@ function promptIfNeeded(){
       "<button class='btn primary' data-act='batgo' data-go>Send in</button><button class='btn' data-act='undo'>Undo the wicket</button>","p");
   }else if(p==="bowl"){
     const prev=s.border.filter(n=>n!==s.lastBowler),others=known(M,bl).filter(n=>!s.border.includes(n));
-    openSheet("<h3>Next over</h3><p>Who bowls over "+(s.legal/6+1)+"? "+(s.lastBowler?esc(s.lastBowler)+" just bowled.":"")+"</p>"+
+    openSheet("<h3>Next over</h3><p>Who bowls over "+(s.legal/bp(M.cfg)+1)+"? "+(s.lastBowler?esc(s.lastBowler)+" just bowled.":"")+"</p>"+
       "<div class='field'><label class='label' for='n-o'>Bowler</label><input type='text' id='n-o' maxlength='16' autocomplete='off'></div>"+
       nameChips(prev.concat(others),"n-o")+
       "<button class='btn primary' data-act='bowlgo' data-go>Start over</button><button class='btn' data-act='undo'>Undo last ball</button>","p");
@@ -611,28 +650,40 @@ function promptIfNeeded(){
 const val=id=>{const el=sheet.querySelector("#"+id);return el?el.value.trim().slice(0,16):""};
 
 function openBreak(why){
-  const a=stats(M,0),T=M.cfg.teams,b1=T[M.inn[0].bat],b2=T[M.inn[1].bat];
-  const reason=why==="allout"?"all out":why==="closed"?"innings ended early":"after "+pl(M.cfg.overs,"over");
-  openSheet("<h3>Innings break</h3><p>"+esc(b1)+" made "+a.runs+"/"+a.wk+" in "+ovStr(a.legal)+" overs, "+reason+".</p>"+
-    "<div class='verdict'>"+esc(b2)+" need "+(a.runs+1)+"<small>from "+M.cfg.overs*6+" balls</small></div>"+
-    "<button class='btn primary' data-act='chase'>Start the chase</button><button class='btn' data-act='undo'>Undo last ball</button>","brk");
+  const i=M.cur,cfg=M.cfg,T=cfg.teams,s=stats(M,i),bt=M.inn[i].bat,B=bp(cfg);
+  const reason=why==="allout"?"all out":why==="closed"?(cfg.test?"declared":"innings ended early"):"after "+pl(cfg.overs,"over");
+  let h="<h3>"+(cfg.test?"End of innings "+(i+1):"Innings break")+"</h3><p>"+esc(T[bt])+" made "+s.runs+"/"+s.wk+" in "+ovStr(s.legal,B)+" overs, "+reason+".</p>";
+  const next=M.inn[i+1].bat;
+  if(i+1===lastInn(M)){
+    const need=total(M,1-next,i)-total(M,next,i)+1;
+    h+="<div class='verdict'>"+esc(T[next])+" need "+need+"<small>"+(cfg.overs>0?"from "+pl(cfg.overs*B,"ball"):"to win, "+pl(maxW(cfg),"wicket")+" in hand")+"</small></div>";
+    h+="<button class='btn primary' data-act='nextinn'>Start the chase</button>";
+  }else{
+    const a=total(M,0,i),b=total(M,1,i),lead=a===b?-1:(a>b?0:1),d=Math.abs(a-b);
+    h+="<div class='verdict'>"+(lead<0?"Scores level":esc(T[lead])+" lead by "+d)+"<small>"+esc(T[0])+" "+a+" · "+esc(T[1])+" "+b+"</small></div>";
+    h+="<button class='btn primary' data-act='nextinn'>"+esc(T[next])+" to bat</button>";
+    if(i===1&&lead===M.inn[0].bat&&d>0)h+="<button class='btn' data-act='followon'>Enforce follow-on ("+esc(T[bt])+" bat again)</button>";
+  }
+  h+="<button class='btn' data-act='undo'>Undo last ball</button>";
+  openSheet(h,"brk");
 }
 
 /* ---------- result ---------- */
 function shareText(m){
   const T=m.cfg.teams,res=result(m);
-  let t="🏏 "+(m.cfg.superOf?"SUPER OVER · ":"")+T[0]+" vs "+T[1]+" · "+pl(m.cfg.overs,"over")+"\n\n";
-  for(let i=0;i<2;i++){const s=stats(m,i);t+=T[m.inn[i].bat]+"  "+s.runs+"/"+s.wk+" ("+ovStr(s.legal)+")\n"}
+  const B=bp(m.cfg),N=m.cur+1;
+  let t="🏏 "+(m.cfg.superOf?"SUPER OVER · ":"")+(m.cfg.test?"TEST · ":"")+T[0]+" vs "+T[1]+" · "+(m.cfg.overs>0?pl(m.cfg.overs,"over"):"no over limit")+(B!==6?" · "+B+"-ball overs":"")+"\n\n";
+  for(let i=0;i<N;i++){const s=stats(m,i);t+=T[m.inn[i].bat]+(m.cfg.test?" ("+ordIn(m,i)+")":"")+"  "+s.runs+"/"+s.wk+" ("+ovStr(s.legal,B)+")\n"}
   t+="\n*"+res.head+"*\n"+res.sub+"\n";
   const pm=potm(m);if(pm)t+="⭐ Player of the match: "+pm.n+(pm.r?" "+pm.r+" runs":"")+(pm.w?" "+pl(pm.w,"wicket"):"")+"\n";
-  for(let i=0;i<2;i++){
+  for(let i=0;i<N;i++){
     const s=stats(m,i),o=s.overs.filter(x=>x.length);
-    t+="\n"+T[m.inn[i].bat]+" by over: "+o.map(x=>x.reduce((a,y)=>a+y.runs,0)).join(" · ");
+    t+="\n"+T[m.inn[i].bat]+(m.cfg.test?" ("+ordIn(m,i)+")":"")+" by over: "+o.map(x=>x.reduce((a,y)=>a+y.runs,0)).join(" · ");
     if(m.cfg.track){
       const tb=s.order.map(n=>s.bat[n]).sort((x,y)=>y.r-x.r)[0];
       const bb=s.border.map(n=>s.bowl[n]).sort((x,y)=>y.w-x.w||x.r-y.r)[0];
       if(tb)t+="\n🏏 "+tb.n+" "+tb.r+(tb.out?"":"*")+" ("+tb.b+")";
-      if(bb)t+="\n🎯 "+bb.n+" "+bb.w+"/"+bb.r+" ("+ovStr(bb.b)+")";
+      if(bb)t+="\n🎯 "+bb.n+" "+bb.w+"/"+bb.r+" ("+ovStr(bb.b,B)+")";
     }
     t+="\n4s "+s.fours+" · 6s "+s.sixes+" · Extras "+s.extras+"\n";
   }
@@ -646,12 +697,12 @@ function cardTables(m,i){
   let h="<div class='tbl'><table><thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>";
   h+=s.order.map(n=>{const b=s.bat[n];return"<tr><td>"+esc(n)+"<small>"+esc(b.out||"not out")+"</small></td><td class='r'>"+b.r+(b.out?"":"*")+"</td><td>"+b.b+"</td><td>"+b.f+"</td><td>"+b.s+"</td><td>"+(b.b?(b.r*100/b.b).toFixed(0):"–")+"</td></tr>"}).join("");
   h+="</tbody></table></div><div class='tbl'><table><thead><tr><th>Bowler</th><th>O</th><th>R</th><th>W</th><th>Econ</th></tr></thead><tbody>";
-  h+=s.border.map(n=>{const o=s.bowl[n];return"<tr><td>"+esc(n)+"</td><td>"+ovStr(o.b)+"</td><td>"+o.r+"</td><td class='r'>"+o.w+"</td><td>"+(o.b?(o.r*6/o.b).toFixed(1):"–")+"</td></tr>"}).join("");
+  h+=s.border.map(n=>{const o=s.bowl[n];return"<tr><td>"+esc(n)+"</td><td>"+ovStr(o.b,bp(m.cfg))+"</td><td>"+o.r+"</td><td class='r'>"+o.w+"</td><td>"+(o.b?(o.r*bp(m.cfg)/o.b).toFixed(1):"–")+"</td></tr>"}).join("");
   return h+"</tbody></table></div>";
 }
 function scoreLines(m){
   const T=m.cfg.teams;let h="";
-  for(let i=0;i<2;i++){const s=stats(m,i);h+="<div class='line'><span class='team'>"+esc(T[m.inn[i].bat])+"</span><span class='s'>"+s.runs+"/"+s.wk+" <small>("+ovStr(s.legal)+")</small></span></div>"}
+  for(let i=0;i<=m.cur;i++){const s=stats(m,i);h+="<div class='line'><span class='team'>"+esc(T[m.inn[i].bat])+(m.cfg.test?" <small class='small'>"+ordIn(m,i)+"</small>":"")+"</span><span class='s'>"+s.runs+"/"+s.wk+" <small>("+ovStr(s.legal,bp(m.cfg))+")</small></span></div>"}
   return h;
 }
 let viewing=null;
@@ -664,11 +715,12 @@ function showResult(m,readonly){
   if(pm)h+="<div class='card potm'><span class='medal'>★</span><div><span class='label'>Player of the match</span><br><strong>"+esc(pm.n)+"</strong> <span class='small'>"+esc(T[pm.team])+(pm.r?" · "+pl(pm.r,"run"):"")+(pm.w?" · "+pl(pm.w,"wicket"):"")+"</span></div></div>";
   h+="<a class='btn wa' href='https://wa.me/?text="+encodeURIComponent(txt)+"' target='_blank' rel='noopener'>Send to WhatsApp</a>";
   if(!readonly){
-    if(r.winner===-1&&!m.cfg.superOf)h+="<button class='btn primary' data-act='superover'>Play super over</button>";
-    h+="<div class='btn-row'><button class='btn' data-act='copy'>Copy scorecard</button><button class='btn' data-act='rematch'>Rematch</button></div><button class='btn"+(r.winner===-1&&!m.cfg.superOf?"":" primary")+"' data-act='new'>New match</button>";
+    const so=r.winner===-1&&!r.draw&&!m.cfg.superOf&&!m.cfg.test;
+    if(so)h+="<button class='btn primary' data-act='superover'>Play super over</button>";
+    h+="<div class='btn-row'><button class='btn' data-act='copy'>Copy scorecard</button><button class='btn' data-act='rematch'>Rematch</button></div><button class='btn"+(so?"":" primary")+"' data-act='new'>New match</button>";
   }else h+="<button class='btn' data-act='copy'>Copy scorecard</button>";
-  for(let i=0;i<2;i++){
-    h+="<div class='card'><span class='label'>"+esc(T[m.inn[i].bat])+" innings</span>"+(m.cfg.track?cardTables(m,i):"")+"<div class='overs-list'>"+overList(m,i)+"</div></div>";
+  for(let i=0;i<=m.cur;i++){
+    h+="<div class='card'><span class='label'>"+esc(T[m.inn[i].bat])+(m.cfg.test?" · "+ordIn(m,i):" innings")+"</span>"+(m.cfg.track?cardTables(m,i):"")+"<div class='overs-list'>"+overList(m,i)+"</div></div>";
   }
   $("#r-body").innerHTML=h;$("#r-body").scrollTop=0;
 }
@@ -679,7 +731,7 @@ function renderHistory(){
   if(!h.length){$("#h-body").innerHTML="<p class='empty-note'>Finished matches show up here, newest first.</p>";return}
   $("#h-body").innerHTML=h.map((m,k)=>{
     const r=result(m),d=new Date(m.created);
-    return"<div class='card hist-item'><span class='d'>"+d.toLocaleDateString(undefined,{day:"numeric",month:"short"})+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+" · "+pl(m.cfg.overs,"over")+(m.cfg.superOf?" · super over":"")+"</span>"+scoreLines(m)+"<span class='r'>"+esc(r.head)+"</span>"+
+    return"<div class='card hist-item'><span class='d'>"+d.toLocaleDateString(undefined,{day:"numeric",month:"short"})+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+" · "+(m.cfg.test?"Test":(m.cfg.overs>0?pl(m.cfg.overs,"over"):""))+(m.cfg.superOf?" · super over":"")+"</span>"+scoreLines(m)+"<span class='r'>"+esc(r.head)+"</span>"+
       "<div class='btn-row'><button class='btn' data-act='view' data-k='"+k+"'>Full scorecard</button><a class='btn wa' href='https://wa.me/?text="+encodeURIComponent(shareText(m))+"' target='_blank' rel='noopener'>WhatsApp</a></div></div>";
   }).join("");
 }
@@ -690,31 +742,44 @@ function renderResume(){
   const c=store.get("gully.current",null),slot=$("#resume-slot");
   if(c&&!c.done&&c.inn){
     let s;try{s=stats(c,c.cur)}catch(e){slot.innerHTML="";return}
-    slot.innerHTML="<div class='card resume'><span class='label'>Match in progress</span><div class='row'><div class='txt'><strong>"+esc(c.cfg.teams[0])+" v "+esc(c.cfg.teams[1])+"</strong><span class='score'>"+esc(c.cfg.teams[c.inn[c.cur].bat])+" "+s.runs+"/"+s.wk+" ("+ovStr(s.legal)+")</span></div><button class='btn primary' data-act='resume'>Resume</button></div></div>";
+    slot.innerHTML="<div class='card resume'><span class='label'>Match in progress</span><div class='row'><div class='txt'><strong>"+esc(c.cfg.teams[0])+" v "+esc(c.cfg.teams[1])+"</strong><span class='score'>"+esc(c.cfg.teams[c.inn[c.cur].bat])+" "+s.runs+"/"+s.wk+" ("+ovStr(s.legal,bp(c.cfg))+")</span></div><button class='btn primary' data-act='resume'>Resume</button></div></div>";
   }else slot.innerHTML="";
 }
 function syncNames(){
   const a=$("#t0").value.trim()||"Team 1",b=$("#t1").value.trim()||"Team 2";
   $("#first0").textContent=a;$("#first1").textContent=b;$("#sq0-l").textContent=a+" players";$("#sq1-l").textContent=b+" players";
 }
+function syncMode(){
+  const t=setup.mode==="test";
+  document.querySelectorAll("#mode .chip").forEach(c=>c.setAttribute("aria-pressed",c.dataset.v===setup.mode));
+  $("#lms-row").hidden=t;
+  $("#mode-note").textContent=t?"Each team bats twice. Follow-on and declarations allowed. No last man stands.":"One innings each. Highest score wins.";
+  $("#overs-title").textContent=t?"Overs per innings":"Overs per side";
+  $("#overs-note").textContent=t?"Set to No limit to bat until all out":"Each innings";
+  if(!t&&setup.overs<1)setup.overs=5;
+  $("#v-overs").textContent=oversOut(setup.overs);
+  $("#bpo-note").textContent=setup.bpo===6?"Normal cricket is 6":"Each over has "+setup.bpo+" legal balls";
+  wkNote();
+}
 function syncSetupUI(){
-  $("#v-overs").textContent=setup.overs;$("#v-players").textContent=setup.players;
+  $("#v-overs").textContent=oversOut(setup.overs);$("#v-players").textContent=setup.players;$("#v-bpo").textContent=setup.bpo;
   $("#lms").setAttribute("aria-checked",setup.lms);$("#track").setAttribute("aria-checked",setup.track);$("#squads").hidden=!setup.track;
   document.querySelectorAll("#extras .chip").forEach(c=>c.setAttribute("aria-pressed",c.dataset.v===setup.extras));
   document.querySelectorAll("#first .chip[data-v]").forEach(c=>c.setAttribute("aria-pressed",+c.dataset.v===setup.first));
   if(setup.teams){$("#t0").value=setup.teams[0];$("#t1").value=setup.teams[1]}
   if(setup.squad){$("#sq0").value=(setup.squad[0]||[]).join(", ");$("#sq1").value=(setup.squad[1]||[]).join(", ")}
-  wkNote();syncNames();
+  syncMode();syncNames();
 }
 $("#t0").addEventListener("input",syncNames);$("#t1").addEventListener("input",syncNames);
 function pick(groupSel,btn,key,num){document.querySelectorAll(groupSel+" .chip[data-v]").forEach(c=>c.setAttribute("aria-pressed",c===btn));setup[key]=num?+btn.dataset.v:btn.dataset.v}
+$("#mode").addEventListener("click",e=>{const b=e.target.closest(".chip[data-v]");if(!b)return;setup.mode=b.dataset.v;if(setup.mode==="test"&&setup.overs===5)setup.overs=0;syncMode()});
 $("#extras").addEventListener("click",e=>{const b=e.target.closest(".chip[data-v]");if(b)pick("#extras",b,"extras")});
 $("#first").addEventListener("click",e=>{const b=e.target.closest(".chip[data-v]");if(b)pick("#first",b,"first",true)});
 $("#lms").addEventListener("click",function(){setup.lms=!setup.lms;this.setAttribute("aria-checked",setup.lms);wkNote()});
 $("#track").addEventListener("click",function(){setup.track=!setup.track;this.setAttribute("aria-checked",setup.track);$("#squads").hidden=!setup.track});
 document.querySelectorAll("[data-step]").forEach(b=>b.addEventListener("click",()=>{
-  const k=b.dataset.step,[lo,hi]=LIM[k];setup[k]=Math.min(hi,Math.max(lo,setup[k]+(+b.dataset.d)));
-  $("#v-"+k).textContent=setup[k];wkNote();
+  const k=b.dataset.step,[lo,hi]=lim(k);setup[k]=Math.min(hi,Math.max(lo,setup[k]+(+b.dataset.d)));
+  $("#v-"+k).textContent=k==="overs"?oversOut(setup[k]):setup[k];syncMode();
 }));
 
 function startMatch(cfg){M=newMatch(cfg);save();show("play");render();promptIfNeeded()}
@@ -732,21 +797,23 @@ function say(text,force){
 }
 function scoreWords(){
   if(!M)return"";const s=stats(M,M.cur),team=M.cfg.teams[M.inn[M.cur].bat];
-  let t=team+" "+s.runs+" for "+s.wk+" after "+ovStr(s.legal).replace("."," point ")+" overs.";
-  if(M.cur===1){const need=stats(M,0).runs+1-s.runs,balls=M.cfg.overs*6-s.legal;t+=" Need "+need+" off "+balls+" balls."}
+  const B=bp(M.cfg),bt=M.inn[M.cur].bat;
+  let t=team+" "+s.runs+" for "+s.wk+" after "+ovStr(s.legal,B).replace("."," point ")+" overs.";
+  if(M.cur===lastInn(M)){const need=total(M,1-bt,M.cur)+1-total(M,bt,M.cur),balls=limit(M.cfg)-s.legal;t+=" Need "+need+(isFinite(balls)?" off "+balls+" balls.":" to win.")}
+  else if(M.cfg.test&&M.cur>0){const d=total(M,bt,M.cur)-total(M,1-bt,M.cur);t+=d>0?" Lead by "+d+".":d<0?" Trail by "+(-d)+".":" Scores level."}
   return t;
 }
 
 /* ---------- menu ---------- */
 function openMenu(){
   const vOK=!!SR&&standalone;
-  openSheet("<h3>Match menu</h3><p>"+pl(M.cfg.overs,"over")+" · "+M.cfg.players+" a side"+(M.cfg.lms?" · last man stands":"")+". Your match is saved, you can leave and resume.</p>"+
+  openSheet("<h3>Match menu</h3><p>"+(M.cfg.test?"Test match · ":"")+(M.cfg.overs>0?pl(M.cfg.overs,"over"):"No over limit")+" · "+bp(M.cfg)+"-ball overs · "+M.cfg.players+" a side"+(M.cfg.lms&&!M.cfg.test?" · last man stands":"")+". Your match is saved, you can leave and resume.</p>"+
     "<div class='row'><div class='txt'><strong>Speak the score</strong><small>Calls out fours, sixes, wickets and each over</small></div><button class='switch' id='m-speak' role='switch' aria-checked='"+prefs.speak+"' aria-label='Speak the score'></button></div>"+
     (vOK?"<div class='field'><span class='label'>Voice input language</span><div class='chips' id='m-vlang'><button class='chip' data-l='en-IN' aria-pressed='"+(prefs.vlang==="en-IN")+"'>English / Roman Urdu</button><button class='chip' data-l='ur-PK' aria-pressed='"+(prefs.vlang==="ur-PK")+"'>اردو</button><button class='chip' data-l='hi-IN' aria-pressed='"+(prefs.vlang==="hi-IN")+"'>Hindi</button></div></div>"+
       "<p>Say: <b>four</b>, <b>chakka</b>, <b>ek</b>, <b>do</b>, <b>dot</b>, <b>wide</b>, <b>wide two</b>, <b>no ball four</b>, <b>bye two</b>, <b>out</b>, <b>caught</b>, <b>run out one</b>, <b>undo</b>, <b>score</b>.</p>":
       "<p>Voice input works once the app is opened from its own link or installed on your phone.</p>")+
     "<button class='btn' data-act='sayscore'>Read out the score</button>"+
-    "<button class='btn' data-act='endinn'>End this innings now</button><button class='btn' data-act='home'>Back to start (keeps match)</button><button class='btn danger' data-act='abandon'>Abandon match</button>"+cancel);
+    "<button class='btn' data-act='endinn'>"+(M.cfg.test&&M.cur<lastInn(M)?"Declare innings":"End this innings now")+"</button>"+(M.cfg.test?"<button class='btn' data-act='drawask'>End match as a draw</button>":"")+"<button class='btn' data-act='home'>Back to start (keeps match)</button><button class='btn danger' data-act='abandon'>Abandon match</button>"+cancel);
   $("#m-speak").addEventListener("click",function(){prefs.speak=!prefs.speak;savePrefs();this.setAttribute("aria-checked",prefs.speak);if(prefs.speak)say("Score calls on.",true)});
   const vl=$("#m-vlang");if(vl)vl.addEventListener("click",e=>{const c=e.target.closest("[data-l]");if(!c)return;prefs.vlang=c.dataset.l;savePrefs();vl.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",x===c));if(listening){stopMic();startMic()}});
 }
@@ -760,14 +827,18 @@ document.addEventListener("click",e=>{
     case"start":{
       const t0=$("#t0").value.trim()||"Team 1",t1=$("#t1").value.trim()||"Team 2";
       if(t0.toLowerCase()===t1.toLowerCase()){toast("Give the teams different names");return}
-      const cfg={teams:[t0,t1],overs:setup.overs,players:setup.players,lms:setup.lms,extras:setup.extras,first:setup.first,track:setup.track,squad:[splitNames($("#sq0").value),splitNames($("#sq1").value)]};
-      store.set("gully.lastSetup",Object.assign({},cfg));
+      const test=setup.mode==="test";
+      const cfg={teams:[t0,t1],overs:test?setup.overs:Math.max(1,setup.overs),bpo:setup.bpo,test,players:setup.players,lms:test?false:setup.lms,extras:setup.extras,first:setup.first,track:setup.track,squad:[splitNames($("#sq0").value),splitNames($("#sq1").value)]};
+      store.set("gully.lastSetup",Object.assign({},cfg,{mode:test?"test":"limited",lms:setup.lms}));
       startMatch(cfg);break}
     case"toss":{const w=Math.random()<.5?0:1;const b=$("#first"+w);pick("#first",b,"first",true);toast((w?$("#t1"):$("#t0")).value.trim()+" won the toss and bat first");buzz(30);break}
-    case"resume":M=store.get("gully.current",null);if(M){show("play");render();if(M.cur===0&&ended(M,0))openBreak(ended(M,0));else promptIfNeeded()}break;
+    case"resume":M=store.get("gully.current",null);if(M){show("play");render();reopenBreak()}break;
     case"undo":if(viewing&&!$("#r-undo").hidden&&M&&M.done){undo()}else undo();break;
     case"close":closeSheet();break;
-    case"chase":M.cur=1;save();closeSheet();render();toast(M.cfg.teams[M.inn[1].bat]+" to bat");promptIfNeeded();break;
+    case"nextinn":M.cur++;save();closeSheet();render();toast(M.cfg.teams[M.inn[M.cur].bat]+" to bat");promptIfNeeded();break;
+    case"followon":M.followOn=true;M.inn[2].bat=M.inn[1].bat;M.inn[3].bat=M.inn[0].bat;M.cur=2;save();closeSheet();render();toast("Follow-on · "+M.cfg.teams[M.inn[2].bat]+" bat again");promptIfNeeded();break;
+    case"drawask":openSheet("<h3>End as a draw?</h3><p>The match stops here and is saved as a draw.</p><button class='btn primary' data-act='drawgo'>Yes, it’s a draw</button>"+cancel);break;
+    case"drawgo":closeSheet();M.drawn=true;M.done=true;save();archive();say("Match drawn.");showResult(M,false);break;
     case"setgo":{
       const s=val("n-s")||"Batter 1",ns=val("n-ns")||"Batter 2",bw=val("n-bw")||"Bowler 1";
       if(s.toLowerCase()===ns.toLowerCase()){toast("The two batters need different names");return}
@@ -783,12 +854,13 @@ document.addEventListener("click",e=>{
     case"menu":openMenu();break;
     case"sayscore":closeSheet();say(scoreWords(),true);toast(scoreWords());break;
     case"endinn":
-      openSheet(M.cur===0?"<h3>End innings?</h3><p>The chasing team still gets the full "+pl(M.cfg.overs,"over")+".</p><button class='btn primary' data-act='endconfirm'>Yes, end it</button>"+cancel
+      openSheet(M.cfg.test&&M.cur<lastInn(M)?"<h3>Declare?</h3><p>"+esc(M.cfg.teams[M.inn[M.cur].bat])+" stop batting now and the next innings starts.</p><button class='btn primary' data-act='endconfirm'>Yes, declare</button>"+cancel
+        :M.cur===0?"<h3>End innings?</h3><p>The chasing team still gets the full "+pl(M.cfg.overs,"over")+".</p><button class='btn primary' data-act='endconfirm'>Yes, end it</button>"+cancel
         :"<h3>End the match?</h3><p>The result is decided on runs so far.</p><button class='btn primary' data-act='endconfirm'>Yes, end it</button>"+cancel);
       break;
     case"endconfirm":
       closeSheet();M.inn[M.cur].closed=true;
-      if(M.cur===0){save();render();openBreak("closed")}
+      if(!matchOver(M,M.cur)){save();render();openBreak("closed")}
       else{M.done=true;save();archive();showResult(M,false)}
       break;
     case"abandon":openSheet("<h3>Abandon match?</h3><p>This match will be deleted, not saved to past matches.</p><button class='btn primary' data-act='abandongo'>Yes, delete it</button>"+cancel);break;
@@ -800,7 +872,7 @@ document.addEventListener("click",e=>{
     case"cleargo":closeSheet();store.del("gully.history");renderHistory();break;
     case"copy":copy(shareText(viewing||M));break;
     case"rematch":{const c=Object.assign({},M.cfg,{first:1-M.cfg.first});delete c.superOf;if(M.cfg.superOf&&M.cfg.parentOvers){c.overs=M.cfg.parentOvers;c.players=M.cfg.parentPlayers}store.del("gully.current");startMatch(c);toast("Rematch · "+c.teams[c.first]+" bat first");break}
-    case"superover":{const c=Object.assign({},M.cfg,{overs:1,players:3,lms:false,first:M.inn[1].bat,superOf:M.id,parentOvers:M.cfg.overs,parentPlayers:M.cfg.players});store.del("gully.current");startMatch(c);toast("Super over · "+c.teams[c.first]+" bat first, 2 wickets");break}
+    case"superover":{const c=Object.assign({},M.cfg,{overs:1,players:3,lms:false,test:false,bpo:6,first:M.inn[1].bat,superOf:M.id,parentOvers:M.cfg.overs,parentPlayers:M.cfg.players});store.del("gully.current");startMatch(c);toast("Super over · "+c.teams[c.first]+" bat first, 2 wickets");break}
     case"new":stopMic();store.del("gully.current");M=null;viewing=null;renderResume();show("setup");break;
     case"mic":toggleMic();break;
     case"install":doInstall();break;
