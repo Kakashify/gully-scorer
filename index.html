@@ -327,7 +327,7 @@ const store={
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pl=(n,w)=>n+" "+w+(n===1?"":"s");
 const standalone=(()=>{try{return window.self===window.top}catch(e){return false}})();
-const prefs=Object.assign({speak:false,vlang:"en-IN"},store.get("gully.prefs",{}));
+const prefs=Object.assign({speak:false,vlang:"en-IN",engine:"off-en"},store.get("gully.prefs",{}));
 const savePrefs=()=>store.set("gully.prefs",prefs);
 
 /* ---------- setup state ---------- */
@@ -812,17 +812,25 @@ function scoreWords(){
 
 /* ---------- menu ---------- */
 function openMenu(){
-  const vOK=!!SR&&standalone;
+  const vOK=voiceAvailable();
   openSheet("<h3>Match menu</h3><p>"+(M.cfg.test?"Test match · ":"")+(M.cfg.overs>0?pl(M.cfg.overs,"over"):"No over limit")+" · "+bp(M.cfg)+"-ball overs · "+M.cfg.players+" a side"+(M.cfg.lms&&!M.cfg.test?" · last man stands":"")+". Your match is saved, you can leave and resume.</p>"+
     "<div class='row'><div class='txt'><strong>Speak the score</strong><small>Calls out fours, sixes, wickets and each over</small></div><button class='switch' id='m-speak' role='switch' aria-checked='"+prefs.speak+"' aria-label='Speak the score'></button></div>"+
-    (vOK?"<div class='field'><span class='label'>Voice input language</span><div class='chips' id='m-vlang'><button class='chip' data-l='en-IN' aria-pressed='"+(prefs.vlang==="en-IN")+"'>English (best)</button><button class='chip' data-l='ur-PK' aria-pressed='"+(prefs.vlang==="ur-PK")+"'>اردو</button><button class='chip' data-l='hi-IN' aria-pressed='"+(prefs.vlang==="hi-IN")+"'>Hindi</button></div>"+
-      "<small class='small'>English works best for cricket words. Urdu and Hindi also understand English words like four, wide and out.</small></div>"+
-      "<p>Say one ball at a time: <b>four</b>, <b>six</b>, <b>single</b>, <b>dot</b>, <b>wide</b>, <b>wide two</b>, <b>no ball four</b>, <b>bye two</b>, <b>out</b>, <b>caught</b>, <b>run out one</b>, <b>undo</b>, <b>score</b>. Roman Urdu like <b>chakka</b>, <b>chauka</b>, <b>ek</b>, <b>do</b> also works.</p>":
+    (vOK?"<div class='field'><span class='label'>Voice engine</span><div class='chips' id='m-engine'>"+
+      "<button class='chip' data-e='off-en' aria-pressed='"+(prefs.engine==="off-en")+"'>Offline · English</button>"+
+      "<button class='chip' data-e='off-hi' aria-pressed='"+(prefs.engine==="off-hi")+"'>Offline · Hindi/Urdu</button>"+
+      (SR?"<button class='chip' data-e='google' aria-pressed='"+(prefs.engine==="google")+"'>Google (online)</button>":"")+"</div>"+
+      "<small class='small' id='m-enote'></small></div>"+
+      "<div class='field' id='m-vlwrap'><span class='label'>Google voice language</span><div class='chips' id='m-vlang'><button class='chip' data-l='en-IN' aria-pressed='"+(prefs.vlang==="en-IN")+"'>English</button><button class='chip' data-l='ur-PK' aria-pressed='"+(prefs.vlang==="ur-PK")+"'>اردو</button><button class='chip' data-l='hi-IN' aria-pressed='"+(prefs.vlang==="hi-IN")+"'>Hindi</button></div></div>"+
+      "<p>Say one ball at a time: <b>four</b>, <b>six</b>, <b>single</b>, <b>dot</b>, <b>wide</b>, <b>wide two</b>, <b>no ball four</b>, <b>bye two</b>, <b>out</b>, <b>caught</b>, <b>run out one</b>, <b>undo</b>, <b>score</b>. In Hindi/Urdu mode say <b>ek</b>, <b>do</b>, <b>chaar</b>, <b>chauka</b>, <b>chakka</b>, <b>out</b>, <b>wide</b>.</p>":
       "<p>Voice input works once the app is opened from its own link or installed on your phone.</p>")+
     "<button class='btn' data-act='sayscore'>Read out the score</button>"+
     "<button class='btn' data-act='endinn'>"+(M.cfg.test&&M.cur<lastInn(M)?"Declare innings":"End this innings now")+"</button>"+(M.cfg.test?"<button class='btn' data-act='drawask'>End match as a draw</button>":"")+"<button class='btn' data-act='home'>Back to start (keeps match)</button><button class='btn danger' data-act='abandon'>Abandon match</button>"+cancel);
   $("#m-speak").addEventListener("click",function(){prefs.speak=!prefs.speak;savePrefs();this.setAttribute("aria-checked",prefs.speak);if(prefs.speak)say("Score calls on.",true)});
   const vl=$("#m-vlang");if(vl)vl.addEventListener("click",e=>{const c=e.target.closest("[data-l]");if(!c)return;prefs.vlang=c.dataset.l;savePrefs();vl.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",x===c));if(listening){stopMic();startMic()}});
+  const en=$("#m-engine");
+  const enote=()=>{const n=$("#m-enote");if(!n)return;n.textContent=prefs.engine==="google"?"Uses Google's speech service. Needs internet, can be slower.":"Runs on your phone, no internet after a one-time "+VMODELS[prefs.engine].mb+" MB download. Only listens for cricket words, so it's fast.";const w=$("#m-vlwrap");if(w)w.hidden=prefs.engine!=="google"};
+  enote();
+  if(en)en.addEventListener("click",e=>{const c=e.target.closest("[data-e]");if(!c)return;prefs.engine=c.dataset.e;savePrefs();en.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed",x===c));enote();if(listening){stopMic();startMic()}});
 }
 
 document.addEventListener("click",e=>{
@@ -891,8 +899,7 @@ document.addEventListener("click",e=>{
    words settle, instead of waiting for the phone to decide the sentence is over. */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const SRP=window.SpeechRecognitionPhrase||window.webkitSpeechRecognitionPhrase;
-let listening=false,sess=null,phrasesOK=!!SRP,restartT=null,idleT=null;
-if(SR&&standalone)$("#mic").classList.add("on");
+let listening=false,sess=null,phrasesOK=!!SRP,restartT=null;
 const NUM={
   zero:0,dot:0,nothing:0,khali:0,khaali:0,"0":0,"خالی":0,"صفر":0,"زیرو":0,"ڈاٹ":0,"ڈوٹ":0,"शून्य":0,"डॉट":0,"डोट":0,"ज़ीरो":0,"जीरो":0,"खाली":0,
   one:1,single:1,won:1,ek:1,aik:1,"ایک":1,"سنگل":1,"ون":1,"एक":1,"सिंगल":1,"वन":1,
@@ -907,7 +914,7 @@ const DIG={"۰":0,"۱":1,"۲":2,"۳":3,"۴":4,"۵":5,"۶":6,"۷":7,"۸":8,"۹":9
 const OUTW=/^(out|aout|owt|wicket|wickets|bowled|bold|caught|catch|court|stumped|stump|gaya|gya|آؤٹ|آوٹ|اوٹ|وکٹ|کیچ|بولڈ|سٹمپ|آउट|आउट|विकेट|कैच|बोल्ड|स्टंप)$/;
 const WIDEW=/^(wide|wied|white|waid|wade|وائڈ|وائیڈ|واڈ|وائد|वाइड|वाईड)$/;
 const BYEW=/^(bye|byes|by|bai|بائی|बाय|बाई)$/;
-const UNDOW=/^(undo|cancel|galat|ghalat|wapas|wrong|غلط|واپس|کینسل|अनडू|गलत|वापस|कैंसल)$/;
+const UNDOW=/^(undo|cancel|galat|ghalat|wapas|wrong|غلط|واپس|کینسل|अनडू|गलत|ग़लत|वापस|कैंसल)$/;
 const SCOREW=/^(score|kitna|kitne|اسکور|سکور|کتنا|स्कोर|कितना)$/;
 function norm(raw){
   let t=" "+String(raw).toLowerCase()+" ";
@@ -968,45 +975,118 @@ function runCmd(c){
 const label=c=>c.c==="r"?(c.r===0?"Dot":c.r+(c.r===1?" run":" runs")):c.c==="wd"?"Wide"+(c.r?" +"+c.r:""):c.c==="nb"?"No ball"+(c.r?" +"+c.r:""):c.c==="b"?"Bye "+c.r:c.c==="ro"?"Run out"+(c.r?" +"+c.r:""):c.c==="w"?"OUT · "+c.how:c.c==="undo"?"Undo":"Score";
 function heard(raw){const cs=parseAll(raw);if(!cs.length){toast("Didn't catch that: “"+raw+"”");return}cs.forEach(runCmd)}
 function vbar(text,hit){const b=$("#vbar");b.hidden=!listening;b.classList.toggle("hit",!!hit);$("#vtext").textContent=text}
+
+/* One utterance at a time: pick the best reading, enter new balls once the words settle. */
+let U={done:0,best:[],timer:null};
+function uReset(){clearTimeout(U.timer);U={done:0,best:[],timer:null}}
+function uFlush(){clearTimeout(U.timer);const nw=U.best.slice(U.done);U.done=U.best.length;if(nw.length){vbar("✓ "+nw.map(label).join(" · "),true);buzz(20);nw.forEach(runCmd)}}
+function feed(alts,isFinal,quick){
+  let best=null,txt=(alts[0]||"").trim();
+  for(const t of alts){const cs=parseAll(t);if(!best||cs.length>best.length){best=cs;if(cs.length)txt=t.trim()}}
+  best=best||[];
+  if(best.length<=U.done){
+    if(txt&&txt!=="[unk]")vbar(isFinal&&!best.length?"Didn't catch “"+txt+"”":"“"+txt+"”");
+    if(isFinal)uReset();return;
+  }
+  U.best=best;vbar("“"+txt+"”");clearTimeout(U.timer);
+  if(isFinal){uFlush();uReset();return}
+  if(quick)U.timer=setTimeout(uFlush,best[best.length-1].pre?900:250);
+}
+
+/* ---- Engine 1: offline, on the phone, only listens for cricket words (Vosk) ---- */
+const VMODELS={"off-en":{file:"models/vosk-model-small-en-in-0.4.tar.gz",mb:36,name:"English"},"off-hi":{file:"models/vosk-model-small-hi-0.22.tar.gz",mb:42,name:"Hindi / Urdu"}};
+const GRAMMAR={
+  "off-en":["zero","dot","dot ball","one","single","two","double","three","four","boundary","five","six","seven","wide","no ball","bye","byes","out","wicket","caught","catch","bowled","stumped","run out","undo","cancel","wrong","score","plus","runs",
+    "wide one","wide two","wide three","wide four","no ball one","no ball two","no ball four","no ball six","bye one","bye two","bye four","run out one","run out two","caught out","one tip one hand","[unk]"],
+  "off-hi":["शून्य","ज़ीरो","जीरो","डॉट","खाली","एक","सिंगल","दो","डबल","तीन","चार","चौका","पांच","पाँच","छह","छक्का","सिक्स","फोर","फ़ोर","वाइड","नो बॉल","नो बाल","बाय","आउट","विकेट","कैच","बोल्ड","रन आउट","गलत","ग़लत","वापस","स्कोर","वाइड एक","वाइड दो","नो बॉल चार","नो बॉल छक्का","रन आउट एक","[unk]"]
+};
+let VK=null,vModels={},vAudio=null,vLoading=false;
+function loadScript(src){return new Promise((ok,bad)=>{if(window.Vosk)return ok();const el=document.createElement("script");el.src=src;el.onload=ok;el.onerror=()=>bad(new Error("script"));document.head.appendChild(el)})}
+async function voskStart(){
+  const cfg=VMODELS[prefs.engine];
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error("nomic");
+  const stream=await navigator.mediaDevices.getUserMedia({video:false,audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
+  if(!listening){stream.getTracks().forEach(t=>t.stop());return}
+  if(!vModels[prefs.engine]){
+    vLoading=true;const t0=Date.now();
+    const tick=setInterval(()=>vbar("Getting the "+cfg.name+" voice pack ready… "+Math.round((Date.now()-t0)/1000)+"s (first time downloads "+cfg.mb+" MB)"),1000);
+    vbar("Getting the "+cfg.name+" voice pack ready…");
+    try{await loadScript("vosk.js");const m=await Vosk.createModel(new URL(cfg.file,location.href).href);m.setLogLevel(-2);vModels[prefs.engine]=m}
+    finally{clearInterval(tick);vLoading=false}
+  }
+  if(!listening){stream.getTracks().forEach(t=>t.stop());return}
+  const model=vModels[prefs.engine];
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const rec=new model.KaldiRecognizer(ctx.sampleRate,JSON.stringify(GRAMMAR[prefs.engine]));
+  rec.setWords(true);
+  rec.on("partialresult",m=>{const t=m.result&&m.result.partial;if(t)feed([t],false,false)});
+  rec.on("result",m=>{
+    const r=m.result||{};let words=(r.result||[]).filter(w=>w.conf>=0.55&&w.word!=="[unk]").map(w=>w.word).join(" ");
+    if(!r.result&&r.text)words=r.text.replace(/\[unk\]/g,"");
+    if(words.trim())feed([words],true);else if(r.text&&r.text.replace(/\[unk\]/g,"").trim())vbar("Not sure, say it again");
+  });
+  const src=ctx.createMediaStreamSource(stream);
+  const node=ctx.createScriptProcessor(4096,1,1);
+  node.onaudioprocess=e=>{try{rec.acceptWaveform(e.inputBuffer)}catch(_){}};
+  src.connect(node);node.connect(ctx.destination);
+  vAudio={stream,ctx,node,src,rec};
+  vbar("Listening (offline)… say “four”, “wide”, “out”");
+}
+function voskStop(){
+  if(!vAudio)return;
+  try{vAudio.node.disconnect();vAudio.src.disconnect()}catch(_){}
+  try{vAudio.stream.getTracks().forEach(t=>t.stop())}catch(_){}
+  try{vAudio.rec.remove()}catch(_){}
+  try{vAudio.ctx.close()}catch(_){}
+  vAudio=null;
+}
+
+/* ---- Engine 2: Google speech in Chrome (needs internet) ---- */
 const PHRASES=["four","six","single","dot","wide","no ball","bye","out","caught","bowled","run out","stumped","undo","score","chakka","chauka","one","two","three"];
 function session(){
-  if(!listening)return;
-  clearTimeout(restartT);
+  if(!listening||prefs.engine!=="google")return;
+  clearTimeout(restartT);uReset();
   const r=new SR();
   r.lang=prefs.vlang;r.continuous=false;r.interimResults=true;r.maxAlternatives=5;
   if(phrasesOK){try{r.phrases=PHRASES.map(x=>new SRP(x,3))}catch(_){phrasesOK=false}}
-  const S={r,done:0,timer:null,best:[]};sess=S;
-  const flush=()=>{clearTimeout(S.timer);const add=S.best.slice(S.done);S.done=S.best.length;if(add.length){vbar("✓ "+add.map(label).join(" · "),true);buzz(20);add.forEach(runCmd)}};
+  sess=r;
   r.onresult=e=>{
     let pre="";for(let k=0;k<e.results.length-1;k++)pre+=" "+e.results[k][0].transcript;
-    const last=e.results[e.results.length-1];
-    let best=null,heardTxt=(pre+" "+last[0].transcript).trim();
-    for(let a=0;a<last.length;a++){const cs=parseAll(pre+" "+last[a].transcript);if(!best||cs.length>best.length){best=cs;if(cs.length)heardTxt=(pre+" "+last[a].transcript).trim()}}
-    if(best.length<=S.done){if(heardTxt)vbar("“"+heardTxt+"”");if(last.isFinal&&heardTxt&&!best.length)vbar("Didn't catch “"+heardTxt+"”");return}
-    S.best=best;vbar("“"+heardTxt+"”");
-    clearTimeout(S.timer);
-    const tail=best[best.length-1];
-    if(last.isFinal)flush();
-    else S.timer=setTimeout(flush,tail.pre?900:250);
+    const last=e.results[e.results.length-1],alts=[];
+    for(let a=0;a<last.length;a++)alts.push(pre+" "+last[a].transcript);
+    feed(alts,last.isFinal,true);
   };
   r.onerror=e=>{
     if(e.error==="phrases-not-supported"){phrasesOK=false;return}
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){toast("Microphone blocked. Allow it for this app in your phone settings.");stopMic();return}
-    if(e.error==="network"){vbar("No internet, voice needs data or Wi-Fi")}
-    if(e.error==="language-not-supported"){toast("That voice language isn't available, switching to English");prefs.vlang="en-IN";savePrefs()}
+    if(e.error==="network"){vbar("No internet. Switch to offline voice in Menu.")}
+    if(e.error==="language-not-supported"){toast("That language isn't available, switching to English");prefs.vlang="en-IN";savePrefs()}
   };
-  r.onend=()=>{flush();if(sess===S&&listening)restartT=setTimeout(session,60)};
+  r.onend=()=>{uFlush();uReset();if(sess===r&&listening)restartT=setTimeout(session,60)};
   try{r.start()}catch(_){restartT=setTimeout(session,300)}
 }
+
+const offline=()=>prefs.engine!=="google";
+const voiceAvailable=()=>standalone&&(!!SR||!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia));
+if(voiceAvailable())$("#mic").classList.add("on");
 function toggleMic(){listening?stopMic():startMic()}
-function startMic(){
-  if(!SR)return;
-  listening=true;const b=$("#mic");b.setAttribute("aria-pressed","true");b.textContent="🎤 On";
-  vbar("Listening… say “four”, “wide”, “out”");session();
+async function startMic(){
+  if(listening)return;
+  if(!offline()&&!SR){prefs.engine="off-en";savePrefs()}
+  listening=true;uReset();const b=$("#mic");b.setAttribute("aria-pressed","true");b.textContent="🎤 On";
+  if(offline()){
+    try{await voskStart()}
+    catch(e){
+      const msg=e&&e.name==="NotAllowedError"?"Microphone blocked. Allow it for this app in your phone settings.":
+        e&&e.message==="nomic"?"This browser can't use the microphone.":"Couldn't load the offline voice pack. Check internet for the first download, or use Google voice in Menu.";
+      toast(msg);stopMic();
+    }
+  }else{vbar("Listening (Google)… say “four”, “wide”, “out”");session()}
 }
 function stopMic(){
-  listening=false;clearTimeout(restartT);const b=$("#mic");b.setAttribute("aria-pressed","false");b.textContent="🎤 Voice";
-  if(sess){try{sess.r.abort()}catch(_){}sess=null}
+  listening=false;clearTimeout(restartT);uReset();const b=$("#mic");b.setAttribute("aria-pressed","false");b.textContent="🎤 Voice";
+  if(sess){try{sess.abort()}catch(_){}sess=null}
+  voskStop();
   $("#vbar").hidden=true;
 }
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&listening)stopMic()});

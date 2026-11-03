@@ -1,4 +1,4 @@
-const CACHE = "gully-v4";
+const CACHE = "gully-v5";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-maskable.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -18,7 +18,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put("./index.html", copy)); return r; }).catch(() => caches.match("./index.html")));
     return;
   }
-  // Everything else (icons, fonts): cache first, then network
+  // Voice packs are large and kept by the voice engine itself, so skip them here
+  if (url.pathname.includes("/models/")) return;
+  // Everything else (icons, fonts, voice engine): cache first, then network
   e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => {
     if (r.ok && (url.origin === location.origin || url.host.endsWith("fonts.gstatic.com") || url.host.endsWith("fonts.googleapis.com"))) {
       const copy = r.clone(); caches.open(CACHE).then(c => c.put(req, copy));
